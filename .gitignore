@@ -16,3 +16,6 @@ dist/
 
 test-results/
 __pycache__/
+
+# Keep the Codex Run button configuration local to each developer.
+/.codex/environments/environment.toml
