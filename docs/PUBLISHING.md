@@ -1,6 +1,6 @@
 # Publishing the Mac source fork
 
-- Proposed repository: **Fozz-byte/cannonball-dx-mac**
+- Repository: **[Fozz-byte/cannonball-dx-mac](https://github.com/Fozz-byte/cannonball-dx-mac)**
 - Display name: **CannonBall DX for Mac**
 - Description: **Apple silicon macOS fork of CannonBall DX with native Metal rendering. Mac port by Astra and Fozz-byte.**
 
@@ -37,7 +37,7 @@ Run from the local project after committing, with a clean working tree:
 
 ```sh
 gh auth status
-gh repo fork Endprodukt/cannonball-dx --fork-name cannonball-dx-mac --clone=false --remote=false
+gh repo fork Endprodukt/cannonball-dx --fork-name cannonball-dx-mac --clone=false
 git remote add origin https://github.com/Fozz-byte/cannonball-dx-mac.git
 git push -u origin HEAD:main
 gh repo edit Fozz-byte/cannonball-dx-mac --default-branch main \
