@@ -12,7 +12,7 @@ Targeting macOS 27+, this fork adds a native Mac app bundle, ROM picker and pers
 
 Settings and high scores remain in `~/Library/Application Support/CannonBall DX/`, including after the app rename.
 
-**CannonBall DX for Mac** builds on **CannonBall DX by Endprodukt https://github.com/Endprodukt/cannonball-dx**, an arcade- and racing-wheel-focused fork of **CannonBall-SE by James Pearce (J1mbo)**, based on **CannonBall by Chris White**. The feature descriptions below retain the upstream DX documentation; wheel feedback and cabinet outputs are disabled in the Mac port.
+**CannonBall DX for Mac** builds on **CannonBall DX by Endprodukt**, an arcade- and racing-wheel-focused fork of **CannonBall-SE by James Pearce (J1mbo)**, based on **CannonBall by Chris White**. The feature descriptions below retain the upstream DX documentation; wheel feedback and cabinet outputs are disabled in the Mac port.
 
 The additional work in upstream CannonBall DX was developed with assistance from **ChatGPT by OpenAI** and **Claude by Anthropic**.
 
