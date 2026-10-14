@@ -6,6 +6,8 @@
 
 **Apple silicon macOS fork of CannonBall DX, with native Metal rendering. Mac port by Astra and Fozz-byte.**
 
+> **Source-only project:** We do not provide a downloadable Mac app, DMG or prebuilt GitHub release. Build the app on your own Mac using the [step-by-step instructions below](#build-the-mac-app-step-by-step). GitHub's **Download ZIP** contains source code, not a ready-to-run app. ROMs are not included.
+
 Targeting macOS 27+, this fork adds a native Mac app bundle, ROM picker and persistent user data. See [Mac build and usage](docs/MACOS.md) and [validation status](docs/MACOS-VALIDATION.md).
 
 Settings and high scores remain in `~/Library/Application Support/CannonBall DX/`, including after the app rename.
@@ -19,6 +21,98 @@ The additional work in upstream CannonBall DX was developed with assistance from
 > Official CannonBall-SE releases are available from the upstream project: https://github.com/J1mbo/cannonball-se/releases
 
 ![CannonBall DX 21:9 Gameplay](screenshots/cannonballdx219.jpg)
+
+---
+
+## Build the Mac app step by step
+
+You need an **Apple silicon Mac (M1 or newer)** running **macOS 27.0 or newer**, **Xcode 27 with the macOS 27 SDK**, and **Python 3 with pip and venv**. An internet connection is needed to download the source, build tools and pinned dependencies. Intel Macs are not supported. You do not need Codex, Homebrew or a paid Apple Developer membership to build and run the app locally.
+
+### 1. Install and prepare Xcode
+
+Install the full **Xcode 27** application in `/Applications/Xcode.app`. Open it once, accept its license and finish installing the components it requests. The standalone Command Line Tools are not a substitute for this project's full Xcode/SDK setup.
+
+Open **Terminal** and select that Xcode installation:
+
+```sh
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -runFirstLaunch
+xcodebuild -version
+xcrun --sdk macosx --show-sdk-version
+python3 --version
+python3 -m pip --version
+```
+
+The Xcode/SDK checks should show version 27 or a compatible newer installation with the required SDK. If Python 3 or pip is missing, install Python 3 from [python.org](https://www.python.org/downloads/macos/) before continuing.
+
+### 2. Download this Mac fork
+
+Run these commands in Terminal. They create a source checkout in your `Developer` folder:
+
+```sh
+mkdir -p ~/Developer
+cd ~/Developer
+git clone --branch main --single-branch https://github.com/Fozz-byte/cannonball-dx-mac.git
+cd cannonball-dx-mac
+```
+
+Run the remaining build commands from this `cannonball-dx-mac` directory.
+
+### 3. Install the build tools
+
+Create a local Python environment and install the CMake and Ninja versions used by this project:
+
+```sh
+python3 -m venv .tools
+.tools/bin/python -m pip install cmake==3.31.6 ninja==1.11.1.4
+```
+
+You do not need to activate the environment: the build script automatically uses `.tools/bin`. These are development tools; the finished Release app does not need Python, CMake or Ninja to run.
+
+### 4. Build and launch the app
+
+```sh
+./script/build_and_run.sh
+```
+
+The first build downloads and compiles the dependencies, so allow several minutes. The script then applies a local ad-hoc signature and launches **CannonBall DX for Mac**. It stops an already-running copy before rebuilding.
+
+Your finished app is at:
+
+```text
+dist/CannonBall DX for Mac.app
+```
+
+To build without launching, use `./script/build_and_run.sh --build-only`. This is a locally built app, not a Developer ID-signed or Apple-notarized distribution.
+
+### 5. Choose your ROMs
+
+At first launch, choose your own **OutRun Revision B** ZIP archive or folder of extracted ROMs in the native file picker. The app validates the files and remembers their location. Leave the ROMs in an accessible folder; do not put them inside the app bundle or commit them to the repository.
+
+The game starts in windowed mode. Use **1** to start, **Left Control** to accelerate, **Left Option** to brake, and the **arrow keys** to steer. **Tab** opens the game menu, **Enter** confirms menu choices, **⌘P** pauses/resumes and **⌘Q** quits. Controls can be remapped in the game menus.
+
+### 6. Put the app in Applications (optional)
+
+Quit the running game, then reveal the built app in Finder:
+
+```sh
+open dist
+```
+
+Drag **CannonBall DX for Mac.app** into **Applications**, then open that copy. Settings and high scores stay in `~/Library/Application Support/CannonBall DX/`, so moving or replacing the app does not erase them. The repository, `.tools` and build directories are not needed to run the installed Release app; keep the checkout if you want to rebuild or update it.
+
+### Updating your local build
+
+From your source checkout, with your own source changes committed or otherwise saved:
+
+```sh
+git pull --ff-only
+./script/build_and_run.sh
+```
+
+If you installed a copy in Applications, quit the game and replace that copy with the newly built app from `dist/`. The build script updates `dist/`; it does not automatically overwrite Applications.
+
+If a build fails, read the first error in Terminal. Check the Xcode/SDK versions from step 1, confirm step 3 completed, and check your network connection if dependency downloads failed. See [Mac build and usage](docs/MACOS.md) for Debug builds, diagnostics and validation commands, and [known Mac limitations](#differences-from-the-windows-version) before testing unfamiliar hardware or display modes.
 
 ---
 
@@ -471,7 +565,7 @@ If you find a crash, graphical problem, input issue or behaviour that differs fr
 
 ### macOS
 
-See [Mac build and usage](docs/MACOS.md). Build and launch with `./script/build_and_run.sh`; the app is staged at `dist/CannonBall DX for Mac.app`.
+This is a **source-only Mac port**. Follow [Build the Mac app step by step](#build-the-mac-app-step-by-step) above. For advanced build options and tests, see [Mac build and usage](docs/MACOS.md).
 
 ### Windows (upstream)
 
