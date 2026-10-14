@@ -4,7 +4,7 @@
 
 # CannonBall DX for Mac
 
-**Apple silicon macOS fork of CannonBall DX, with native Metal rendering. Mac port by Astra and Fozz-byte. I don't have a racing wheel, so I didn't port those features; please feel free to fork and add that in :)**
+**Apple silicon macOS fork of CannonBall DX, with native Metal rendering. Mac port by Astra and Fozz-byte. I don't have a racing wheel, so I didn't port those features; please feel free to fork and add those features if required, this was a quick afternoon project :)**
 
 > **Source-only project:** We do not provide a downloadable Mac app, DMG or prebuilt GitHub release. Build the app on your own Mac using the [step-by-step instructions below](#build-the-mac-app-step-by-step). GitHub's **Download ZIP** contains source code, not a ready-to-run app. ROMs are not included.
 
