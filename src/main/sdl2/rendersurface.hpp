@@ -17,7 +17,8 @@
 #include <mutex>
 #include <atomic>
 #include <condition_variable>
-#include "gl_backend.hpp"   // tiny ES2 backend
+#include <vector>
+#include "presentation.hpp"   // tiny ES2 backend
 
 // SDL's Windows backend can reject SDL_SetWindowInputFocus with
 // "That operation is not supported". RenderSurface::focus_window already

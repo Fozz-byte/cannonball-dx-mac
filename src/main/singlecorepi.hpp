@@ -1,6 +1,9 @@
 // singleCorePi.hpp
 #pragma once
+#ifdef _OPENMP
 #include <omp.h>
+#endif
+#include <thread>
 #include <fstream>
 #include <string>
 #include <algorithm>
@@ -25,7 +28,11 @@ inline bool singleCorePi()
     /* -------------------------------------------------
        1️⃣  OpenMP thread count
        ------------------------------------------------- */
+#ifdef _OPENMP
     const int ompThreads = omp_get_max_threads();
+#else
+    const int ompThreads = std::thread::hardware_concurrency();
+#endif
     if (ompThreads != 1) return false;           // not a single‑core OMP machine
 
     /* -------------------------------------------------

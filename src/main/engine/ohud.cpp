@@ -677,7 +677,7 @@ void OHud::blit_text_big(const uint8_t Y, const char* text, bool do_notes)
     // Blit each tile
     for (uint16_t i = 0; i < length; i++)
     {
-        uint16_t c = static_cast<uint16_t>(*text++); // JJP - fix display on 32-bit targets
+        uint16_t c = static_cast<unsigned char>(*text++); // JJP - fix display on 32-bit targets
         // Convert lowercase characters to uppercase
         if (c >= 'a' && c <= 'z')
             c -= 0x20;
@@ -727,13 +727,16 @@ void OHud::blit_text_new(uint16_t x, uint16_t y, const char* text, uint16_t pal)
 
     for (uint16_t i = 0; i < length; i++)
     {
-        uint16_t c = static_cast<uint16_t>(*text++); // JJP - fix display on 32-bit targets
+        uint16_t c = static_cast<unsigned char>(*text++); // JJP - fix display on 32-bit targets
 
         // Convert lowercase characters to uppercase
         if (c >= 'a' && c <= 'z')
             c -= 0x20;
-        else if (c == '©')
-            c = 0x10;
+        else if (c == 0xC2 && i + 1 < length && static_cast<unsigned char>(*text) == 0xA9) {
+            ++text; ++i; c = 0x10; // UTF-8 copyright glyph
+        }
+        else if (c == 0xA9)
+            c = 0x10; // legacy single-byte text
         else if (c == '-')
             c = 0x2d;
         else if (c == '.')

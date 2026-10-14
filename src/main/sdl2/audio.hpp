@@ -95,6 +95,12 @@ public:
     void load_audio(const char* filename);
     void tick();
     void fill_and_mix(uint8_t *stream, int len);
+    // Relaxed counters can be sampled without locking the realtime callback.
+    static bool callback_self_test();
+    uint64_t callback_count() const { return callbackCount.load(std::memory_order_relaxed); }
+    uint64_t max_mix_micros() const { return maxMixMicros.load(std::memory_order_relaxed); }
+    uint64_t max_mix_gap_micros() const { return maxMixGapMicros.load(std::memory_order_relaxed); }
+    uint64_t underrun_count() const { return underrunCount.load(std::memory_order_relaxed); }
 
 private:
     // Stereo. Could be changed, requires some recoding.
@@ -147,6 +153,8 @@ private:
     std::counting_semaphore<BUFFER_COUNT> spaceAvailable{BUFFER_COUNT};
     std::counting_semaphore<BUFFER_COUNT> samplesReady{0};
     std::atomic<bool> running{false};
+    std::atomic<uint64_t> callbackCount{0}, underrunCount{0};
+    std::atomic<uint64_t> maxMixMicros{0}, maxMixGapMicros{0};
 
     std::thread mixThread;
     void mixing_loop();

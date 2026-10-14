@@ -572,8 +572,8 @@ void Menu::tick()
         handle_escape();
     }
 
-    // The DX wrapper inserts its own credit directly above the inherited SE
-    // credit. Change only that DX entry; never match the generic BUILD text,
+    // The DX wrapper adds its own credit alongside the inherited SE credit.
+    // Change only that DX entry; never match the generic BUILD text,
     // because the SE credit uses it too.
     bool dx_credit_found = false;
     bool se_credit_found = false;
@@ -811,6 +811,11 @@ void Menu::populate_controls()
     };
 
     erase_entry(FFB_MODE_LABEL);
+#ifdef __APPLE__
+    erase_entry(ENTRY_FFB);
+    erase_entry(ENTRY_FFB_STRENGTH);
+    erase_entry(ENTRY_CENTERING_STRENGTH);
+#endif
 
     if (config.input_mode_is_gamepad())
     {

@@ -753,6 +753,11 @@ void Config::load()
         disable_migrated_legacy_bindings(controls);
     }
 
+#ifdef __APPLE__
+    controls.haptic = false;
+    smartypi.enabled = false;
+    if(first_run) { video.mode=0; video.scale=1; }
+#endif
     // load_base() may already have created config.xml using its historical
     // defaults. Rewrite it now with the canonical first-run profile above.
     if (first_run)

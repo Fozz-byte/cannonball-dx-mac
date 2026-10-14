@@ -1,3 +1,6 @@
+#ifdef __APPLE__
+#include "platform/macos/mac_platform.hpp"
+#endif
 /***************************************************************************
     XML Configuration File Handling.
 
@@ -185,6 +188,10 @@ void Config::load()
     data.rom_path         = cfg.get_string("data.rompath", "roms/");  // Path to ROMs
     data.res_path         = cfg.get_string("data.respath", "res/");   // Path to resources
     data.save_path        = cfg.get_string("data.savepath", "./");    // Path to Save Data
+#ifdef __APPLE__
+    data.res_path = mac_platform::resources();
+    data.save_path = mac_platform::user_data();
+#endif
     data.crc32            = cfg.get_int   ("data.crc32", 1);
 
     data.file_scores      = data.save_path + "hiscores.xml";
@@ -279,7 +286,11 @@ void Config::load()
     sound.playback_device_name = cfg.get_string("sound.playback_device_name", "");
 
     // Custom Music. Search for enabled custom tracks
+#ifdef __APPLE__
+    get_custom_music(mac_platform::music());
+#else
     get_custom_music(data.res_path);
+#endif
 
     if (!sound.music_timer)
         sound.music_timer = MUSIC_TIMER;
@@ -299,6 +310,9 @@ void Config::load()
     smartypi.enabled = cfg.get_int("smartypi.<xmlattr>.enabled",        0);
     smartypi.ouputs  = cfg.get_int("smartypi.outputs",                  1);
     smartypi.cabinet = cfg.get_int("smartypi.cabinet",                  1);
+#ifdef __APPLE__
+    smartypi.enabled = false;
+#endif
 
     // ------------------------------------------------------------------------
     // Controls
@@ -591,6 +605,12 @@ bool Config::save()
     ttrial.laps    = cfg.get_int("time_trial.laps",    3);
     ttrial.traffic = cfg.get_int("time_trial.traffic", 3);
     cont_traffic   = cfg.get_int("continuous.traffic", 3);
+
+#ifdef __APPLE__
+    cfg.put_string("data.rompath", mac_platform::saved_rom_path());
+#else
+    cfg.put_string("data.rompath", data.rom_path);
+#endif
 
     // Write out to the current directory (even if we loaded from res/)
     if (!xml_parser::write_xml(data.cfg_file, cfg)) {

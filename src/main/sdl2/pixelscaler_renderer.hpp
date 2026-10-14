@@ -7,7 +7,9 @@
 #include "hqx.h"
 
 #include <SDL.h>
+#ifndef __APPLE__
 #include <SDL_opengles2.h>
+#endif
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -614,6 +616,9 @@ private:
         int height,
         glb::State::PixFmt fmt)
     {
+#ifdef __APPLE__
+        glb::resize_game_texture(width, height, fmt);
+#else
         glb::set_game_pixel_format(fmt);
         glb::G.gameW = width;
         glb::G.gameH = height;
@@ -638,6 +643,7 @@ private:
             external_format,
             type,
             nullptr);
+#endif
     }
 
     void configure_se_shader_if_needed()

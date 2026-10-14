@@ -1,3 +1,6 @@
+#ifdef __APPLE__
+#include "platform/macos/mac_platform.hpp"
+#endif
 /***************************************************************************
     Music Selection Screen.
 
@@ -751,12 +754,24 @@ void OMusic::play_music(int index)
 
         case music_t::IS_YM_EXT:
             cannonball::audio.clear_wav();
-            roms.load_ym_data((config.data.res_path + next_track->filename).c_str());
+            roms.load_ym_data((
+#ifdef __APPLE__
+                mac_platform::music()
+#else
+                config.data.res_path
+#endif
+                + next_track->filename).c_str());
             osoundint.queue_sound(next_track->cmd);
             break;
 
         case music_t::IS_WAV:
-            cannonball::audio.load_audio((config.data.res_path + next_track->filename).c_str());
+            cannonball::audio.load_audio((
+#ifdef __APPLE__
+                mac_platform::music()
+#else
+                config.data.res_path
+#endif
+                + next_track->filename).c_str());
             break;
     }
 

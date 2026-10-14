@@ -1,2 +1,18 @@
 .vs/
 build/
+.tools/
+dist/
+.DS_Store
+# Keep loose ROMs (including extensionless chips) and archives out of commits.
+/roms/*
+!/roms/roms.txt
+
+# Local game state belongs in Application Support, not in the source repository.
+/config.xml
+/highscores.xml
+/hiscores*.xml
+/play_stats.xml
+/CannonBall.log
+
+test-results/
+__pycache__/

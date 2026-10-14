@@ -32,6 +32,10 @@ struct ExternalOutputSettings
             return;
 
         loaded = true;
+#ifdef __APPLE__
+        network = windows = false;
+        return;
+#endif
 
         xml_parser::ptree tree;
         bool found = xml_parser::read_xml(config.data.cfg_file, tree);

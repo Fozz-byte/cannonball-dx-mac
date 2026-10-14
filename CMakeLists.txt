@@ -11,8 +11,17 @@
 
 cmake_minimum_required(VERSION 3.20)
 project(cannonball-dx)
+if(APPLE)
+    enable_language(OBJC OBJCXX)
+    if(NOT CMAKE_OSX_ARCHITECTURES STREQUAL "arm64")
+        message(FATAL_ERROR "The Mac port requires CMAKE_OSX_ARCHITECTURES=arm64")
+    endif()
+endif()
 include(GNUInstallDirs)
 include(FetchContent)
+if(APPLE)
+    include(cmake/MacDependencies.cmake)
+endif()
 
 # --- Compiler version checks ------------------------------------------------------
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 12)
@@ -24,6 +33,8 @@ elseif(MSVC AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 19.36)
 endif()
 
 set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_OBJCXX_STANDARD 23)
+set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -351,7 +362,38 @@ SOURCE_GROUP(src\\engine FILES ${src_engine})
 SOURCE_GROUP(src\\engine\\data FILES ${src_engine_data})
 SOURCE_GROUP(src\\engine\\audio FILES ${src_engine_audio})
 
-add_executable(cannonball-dx ${SRCS})
+if(APPLE)
+    file(READ "${main_cpp_base}/globals.hpp" _cb_mac_globals)
+    string(REGEX MATCH "CANNONBALL_DX_VERSION[ \t]+\"([^\"]+)\"" _cb_mac_match "${_cb_mac_globals}")
+    set(CB_VERSION_STRING "${CMAKE_MATCH_1}")
+    if(NOT CB_VERSION_STRING)
+        message(FATAL_ERROR "Cannot read CannonBall version from globals.hpp")
+    endif()
+    add_executable(cannonball-dx MACOSX_BUNDLE ${SRCS}
+        src/main/platform/macos/metal_backend.mm src/main/platform/macos/mac_platform.mm)
+    target_compile_options(cannonball-dx PRIVATE $<$<COMPILE_LANGUAGE:OBJCXX>:-fobjc-arc>)
+    target_link_libraries(cannonball-dx PRIVATE "-framework Cocoa" "-framework Metal" "-framework QuartzCore")
+    set_target_properties(cannonball-dx PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "CannonBall DX for Mac"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "local.cannonball.dx" MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/cmake/Info.plist.in")
+    add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/CannonBall.icns"
+        COMMAND bash "${CMAKE_SOURCE_DIR}/script/make_icon.sh" "${CMAKE_SOURCE_DIR}/res/icon.png" "${CMAKE_CURRENT_BINARY_DIR}"
+        DEPENDS "${CMAKE_SOURCE_DIR}/res/icon.png" "${CMAKE_SOURCE_DIR}/script/make_icon.sh")
+    add_custom_target(mac_icon DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/CannonBall.icns")
+    add_custom_target(mac_resources ALL
+        DEPENDS cannonball-dx mac_icon
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_CONTENT_DIR:cannonball-dx>/Resources"
+        COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_BINARY_DIR}/CannonBall.icns" "$<TARGET_BUNDLE_CONTENT_DIR:cannonball-dx>/Resources/CannonBall.icns"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/res" "$<TARGET_BUNDLE_CONTENT_DIR:cannonball-dx>/Resources/res"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/docs" "$<TARGET_BUNDLE_CONTENT_DIR:cannonball-dx>/Resources/docs"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_CONTENT_DIR:cannonball-dx>/Resources/licenses"
+        COMMAND ${CMAKE_COMMAND} -E copy "${mac_sdl_SOURCE_DIR}/LICENSE.txt" "$<TARGET_BUNDLE_CONTENT_DIR:cannonball-dx>/Resources/licenses/SDL2.txt"
+        COMMAND ${CMAKE_COMMAND} -E copy "${mac_xml_SOURCE_DIR}/LICENSE.txt" "$<TARGET_BUNDLE_CONTENT_DIR:cannonball-dx>/Resources/licenses/TinyXML2.txt"
+        COMMAND ${CMAKE_COMMAND} -E copy "${mac_mpg_SOURCE_DIR}/COPYING" "$<TARGET_BUNDLE_CONTENT_DIR:cannonball-dx>/Resources/licenses/mpg123.txt"
+        COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_PROPERTY:miniz,SOURCE_DIR>/LICENSE" "$<TARGET_BUNDLE_CONTENT_DIR:cannonball-dx>/Resources/licenses/miniz.txt"
+        COMMAND ${CMAKE_COMMAND} -E copy "${cannonball_scalers_SOURCE_DIR}/LICENSE" "$<TARGET_BUNDLE_CONTENT_DIR:cannonball-dx>/Resources/licenses/Mesen2.txt")
+else()
+    add_executable(cannonball-dx ${SRCS})
+endif()
 
 # --- ZIP ROM support -----------------------------------------------------------
 # miniz is used only for reading ROMs directly from ZIP archives. Keep it pinned
@@ -446,7 +488,7 @@ target_include_directories(cannonball-dx PRIVATE
   ${_SDL2_INCLUDE_DIRS}               # present on all platforms
 )
 
-if(NOT WIN32)
+if(NOT WIN32 AND NOT APPLE)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(EGL    REQUIRED IMPORTED_TARGET egl)
   pkg_check_modules(GLESv2 REQUIRED IMPORTED_TARGET glesv2)
@@ -455,7 +497,7 @@ if(NOT WIN32)
     PkgConfig::EGL
     PkgConfig::GLESv2
   )
-else()
+elseif(WIN32)
   # Windows: prefer ANGLE from vcpkg
   find_package(unofficial-angle CONFIG QUIET)
   if(TARGET unofficial::angle::libEGL AND TARGET unofficial::angle::libGLESv2)
@@ -478,8 +520,8 @@ target_link_libraries(cannonball-dx PRIVATE
   ${_TINYXML2_TARGET}
   $<$<PLATFORM_ID:Windows>:unofficial::angle::libEGL>
   $<$<PLATFORM_ID:Windows>:unofficial::angle::libGLESv2>
-  $<$<NOT:$<PLATFORM_ID:Windows>>:PkgConfig::EGL>
-  $<$<NOT:$<PLATFORM_ID:Windows>>:PkgConfig::GLESv2>
+  $<$<PLATFORM_ID:Linux>:PkgConfig::EGL>
+  $<$<PLATFORM_ID:Linux>:PkgConfig::GLESv2>
 )
 
 # --- Linux: udev for joystick hotplugging ---
@@ -495,7 +537,11 @@ if(UNIX AND NOT APPLE)
 endif()
 
 # --- Optional MPG123/MP3 support ---
-if(WITH_MP3)
+if(APPLE AND WITH_MP3)
+    target_link_libraries(cannonball-dx PRIVATE libmpg123)
+    target_include_directories(cannonball-dx PRIVATE "${mac_mpg_SOURCE_DIR}/src/include")
+    target_compile_definitions(cannonball-dx PRIVATE WITH_MP3)
+elseif(WITH_MP3)
     find_path(MPG123_INCLUDE_DIR mpg123.h)
     find_library(MPG123_LIBRARY NAMES mpg123 libmpg123)
     if(MPG123_INCLUDE_DIR AND MPG123_LIBRARY)
@@ -522,7 +568,7 @@ else()
     target_compile_options(cannonball-dx PRIVATE -Wall -Wextra -Wpedantic)
 
     # Optimize Release builds aggressively (-Ofast) on GCC/Clang
-    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    if(NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         target_compile_options(cannonball-dx PRIVATE $<$<CONFIG:Release>:-Ofast>)
     endif()
 endif()
@@ -668,7 +714,9 @@ if(ENABLE_PROFILING)
 endif()
 
 # OpenMP: Try to enable, but don't require everywhere
+if(NOT APPLE)
 find_package(OpenMP)
+endif()
 if(OpenMP_CXX_FOUND)
     target_link_libraries(cannonball-dx PRIVATE OpenMP::OpenMP_CXX)
 endif()

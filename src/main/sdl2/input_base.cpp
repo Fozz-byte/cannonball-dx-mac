@@ -24,7 +24,7 @@
   namespace forcefeedback { bool init(int,int,int); int set(int,int); void close(); bool is_supported(); }
 #endif
 
-#ifndef WIN32
+#ifdef __linux__
 // JJP - Includes for udev, to find gamepad haptics where not supported by SDL
 #include <stdio.h>
 #include <stdlib.h>
@@ -321,7 +321,7 @@ void Input::open_joy()
 
 
 
-#ifdef WIN32
+#if !defined(__linux__)
             std::cout << " without SDL rumble support." << std::endl;
 #else
             // Linux only - Check for rumble support
@@ -437,7 +437,7 @@ void Input::open_joy()
                 std::cout << "DirectInput force feedback enabled" << std::endl;
             }
         }
-#else
+#elif defined(__linux__)
         // Linux: if SDL rumble is not available, try evdev kernel FF
         if (!rumble_supported) {
             if (forcefeedback::init(0x7fff, 0x2fff, 50)) {
@@ -1074,7 +1074,7 @@ void Input::handle_joy_hat(SDL_JoyHatEvent* evt)
 
 void Input::set_rumble(bool enable, float strength, int mode)
 {
-#ifndef WIN32
+#ifdef __linux__
     if (hidraw_device >= 0) {
         // takes precidence over SDL native support
 

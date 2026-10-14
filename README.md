@@ -2,15 +2,19 @@
 <img src="screenshots/CannonballDX.png" alt="CannonBall DX" width="500">
 </p>
 
-# CannonBall DX (WIP)
+# CannonBall DX for Mac
 
-*An arcade- and racing-wheel-focused fork of CannonBall-SE, based on Chris White's CannonBall OutRun engine.*
+**Apple silicon macOS fork of CannonBall DX, with native Metal rendering. Mac port by Astra and Fozz-byte.**
 
-**CannonBall DX** builds on **CannonBall-SE by James Pearce (J1mbo)**, which itself is based on **CannonBall by Chris White**. The aim of this fork is to make CannonBall especially well suited to modern racing wheels, multi-device PC setups and dedicated arcade cabinets while keeping the original OutRun feel intact.
+Targeting macOS 27+, this fork adds a native Mac app bundle, ROM picker and persistent user data. See [Mac build and usage](docs/MACOS.md) and [validation status](docs/MACOS-VALIDATION.md).
 
-The additional work in this fork was developed with assistance from **ChatGPT by OpenAI** and **Claude by Anthropic**.
+Settings and high scores remain in `~/Library/Application Support/CannonBall DX/`, including after the app rename.
 
-> **Platform status:** CannonBall DX is currently developed and tested **only on Windows 10/11 (64-bit)**. Linux, Raspberry Pi and other platforms have **not been tested with the DX changes**. The upstream CannonBall and CannonBall-SE projects support additional platforms, but no compatibility with CannonBall DX or its added features is claimed or guaranteed outside Windows.
+**CannonBall DX for Mac** builds on **CannonBall DX by Endprodukt https://github.com/Endprodukt/cannonball-dx**, an arcade- and racing-wheel-focused fork of **CannonBall-SE by James Pearce (J1mbo)**, based on **CannonBall by Chris White**. The feature descriptions below retain the upstream DX documentation; wheel feedback and cabinet outputs are disabled in the Mac port.
+
+The additional work in upstream CannonBall DX was developed with assistance from **ChatGPT by OpenAI** and **Claude by Anthropic**.
+
+> **Platform status:** This fork targets Apple silicon Macs. Keyboard and gamepad are the Mac control paths; see the [validation report](docs/MACOS-VALIDATION.md) for tested behavior and remaining limitations. Upstream CannonBall DX is developed and tested on Windows 10/11 (64-bit).
 
 > Official CannonBall-SE releases are available from the upstream project: https://github.com/J1mbo/cannonball-se/releases
 
@@ -18,7 +22,73 @@ The additional work in this fork was developed with assistance from **ChatGPT by
 
 ---
 
-## CannonBall DX Features
+## What this Mac port adds
+
+This port is based on CannonBall DX 1.04 at upstream commit [`09edd625138d5b95bc41b184ee8bda0e0d7c4b8b`](https://github.com/Endprodukt/cannonball-dx/tree/09edd625138d5b95bc41b184ee8bda0e0d7c4b8b). The original C++ game engine and SDL2 input/audio are retained. The changes below describe this branch, rather than later upstream Windows releases.
+
+### Native Apple silicon application
+
+- **arm64-only builds for macOS 27.0 and newer**, using Apple Clang, C++23, CMake and Objective-C++ platform integration. Intel Macs and Rosetta builds are outside this port's scope.
+- **CannonBall DX for Mac.app**, with its own app icon, macOS menu, native About window and matching in-game/README branding. Credits follow Chris White → James Pearce → Endprodukt → Astra and Fozz-byte.
+- **Bundled dependencies:** SDL2 2.32.10, TinyXML2 11.0.0 and mpg123 1.32.9 use version- and hash-pinned source archives; miniz and Mesen2 scalers retain their upstream commit pins. The Release app links these into the executable and needs no Homebrew runtime.
+- **Portable platform code:** Linux-only CPU affinity/syscalls are excluded on Mac, byte swapping uses a portable compiler primitive, and OpenMP is optional. Existing C++ rendering workers remain; window operations, SDL events and native panels stay on the main thread.
+- **Development workflow:** `script/build_and_run.sh` builds, ad-hoc signs and stages the app in `dist/`, with build-only, debugger, logging, launch verification and soak-test options. CMake has Release and sanitizer-enabled Debug presets; the Codex Run action uses the same script.
+
+### Metal graphics and window behavior
+
+- **Native Metal presentation** through SDL's Metal view and `CAMetalLayer`, replacing the Mac EGL/GLES path while retaining the existing GLES backend for upstream platforms.
+- **Normal and fast CRT shaders ported to Metal**, including the applicable curvature, brightness, noise, desaturation, vignette and shadow-mask effects. CPU NTSC processing and xBRZ/HQx scaling remain available.
+- **Explicit pixel upload handling** for RGBA, ABGR, packed 5551, padded row pitch and the text overlay. Texture storage is not reused until the previous GPU work completes.
+- **Retina-aware, resizable window rendering**, drawable-size updates and aspect-ratio handling. Short runs covered 4:3, 16:9 and 21:9; fullscreen and mixed-display transitions still need broader testing.
+- **Windowed first launch**, with the chosen window scale saved in the existing configuration. Existing installations retain their preferences, including a larger window size when selected.
+- **30/60/120 fps options retained**, with the upstream 30 Hz game-logic scheduling unchanged. Frame throughput has been measured; a complete gameplay-speed comparison is still outstanding.
+
+### ROM selection, saves and macOS controls
+
+- **Native ROM picker** for a ZIP archive or loose-ROM folder, using the existing CRC/size validation. Invalid data produces an error and permits another selection; cancellation preserves an existing selection. An unavailable saved location triggers selection again at startup.
+- **ROMs are referenced in place** and are neither modified nor included in the app. Immutable assets load from the app bundle, so launching from Applications does not depend on a terminal's working directory.
+- **Persistent settings, high scores, play statistics, logs and custom music** under `~/Library/Application Support/CannonBall DX/`. The folder and bundle identifier were deliberately retained during the rename; settings and high-score files were checked unchanged afterward.
+- **Native menu actions:** About, Pause / Resume (`⌘P`), Choose ROMs (`⌘O`), Open User Data Folder and Quit (`⌘Q`). Normal quit saves configuration and statistics.
+- **Focus-loss and sleep handling** pauses gameplay, clears held inputs and stops rumble; resuming is explicit. Physical sleep/wake testing remains outstanding.
+- **Control-arrow shortcut capture during focused, unpaused gameplay**, preventing macOS Spaces/Mission Control from taking those controls. Escape pauses and releases capture; pausing, focus loss and native panels also release it. System Settings shortcuts are not changed.
+- **Pointer hiding over active game content**, with the pointer visible outside the content, over the title bar, while paused and in native panels.
+- **Unsupported Mac wheel-feedback controls hidden**, with haptic feedback and cabinet outputs disabled. SDL keyboard/gamepad bindings remain available.
+
+### Audio reliability and completed checks
+
+The audio callback no longer blocks indefinitely waiting for a mixer buffer: it supplies silence if a buffer is missing, records the event and can recover on subsequent callbacks. Pause/reset ordering was corrected so the producer stops before its queue is reset. The Mac mixer requests user-interactive scheduling priority, and active gameplay holds an App Nap activity that is released when paused.
+
+Release and Debug builds passed architecture/signature checks and Metal GPU readback tests covering pixel formats, padded rows, orientation, overlays, neutral normal/fast shaders and renderer recreation. Audio tests cover buffer starvation, recovery and ring-buffer wrapping. A short real-ROM Debug run completed without AddressSanitizer or UndefinedBehaviorSanitizer reports.
+
+On an **M1 MacBook Air with 16 GB RAM running macOS 27.0.1**, the corrected build passed a **30-minute automated attract/demo soak** at the default visual preset: **59.90 fps average**, **59.99 fps median**, and **zero observed application mixer starvation events**. Six two-second samples fell below 57 fps; no sustained decline or upward resident-memory trend was observed. This was an automated demo workload, not a 30-minute human-played race or an acoustic test of every audio device. Later input, naming and credits changes were checked separately; the soak was not repeated for those changes.
+
+The app has also been installed and launched from Applications, driven with keyboard controls, and checked for the renamed menus, both About screens, shortcut capture, pointer hiding and save-file preservation. See the [detailed validation record](docs/MACOS-VALIDATION.md) and [soak results and fixes](docs/MACOS-SOAK.md).
+
+## Differences from the Windows version
+
+The comparison is against the pinned upstream DX source above. **Unavailable** means deliberately disabled or outside this Mac build; **unverified** means the code remains but testing has not established full support.
+
+| Area | Mac port status compared with Windows DX |
+| --- | --- |
+| Wheel force feedback, centering, road/engine effects and music-selector FFB | **Unavailable.** The Windows force-feedback backend is not ported; Mac haptic feedback is disabled and its controls are hidden. |
+| Cabinet lamps, MAME network output, MAMEOutput/MAMEHooker and SmartyPi | **Unavailable.** Network/Windows outputs and SmartyPi are disabled on Mac, including lamp choreography as physical output. |
+| Wheels, pedals, shifters and multiple input devices | SDL bindings remain, but **physical Mac compatibility is unverified**. Wheel input may work; this is not a guarantee of the Windows wheel experience. |
+| Gamepad mappings, reconnects and rumble | SDL support remains, but **physical-controller acceptance is outstanding**. Rumble depends on device capability and needs testing. |
+| Graphics backend and effects | Metal replaces GLES/ANGLE. Normal/fast effects, NTSC and scalers are implemented; **full visual parity against Windows/GLES reference captures is unverified**. |
+| Fullscreen, Retina and display switching | Windowed operation is checked. Fullscreen paths remain, including experimental exclusive fullscreen, but **exhaustive transitions and external-display behavior are unverified**. Windowed mode is the first-launch default. |
+| Original, Japanese, Continuous, Endless and Time Trial modes | Engine/menu code is retained; **complete runs of every mode, results screens and high-score entry remain to be tested**. These modes have not been deliberately removed. |
+| Custom music | WAV/MP3/YM and the inherited BIN path remain; **end-to-end custom-music testing is outstanding**. Mac music belongs in the user-data `Music/` folder, not inside the app bundle. BIN support was also unverified upstream. |
+| 120 fps and expensive filter/scaler combinations | Available, with short-run measurements, but **sustained performance and gameplay-speed comparisons remain incomplete**. The successful 30-minute soak used the default 60 fps preset. |
+| Sleep/wake and audio-device changes | Pause handling is implemented; **physical sleep/wake and device-switch testing remain outstanding**. |
+| Distribution and hardware targets | **Apple silicon and macOS 27+ only.** No Intel Mac build, older-macOS support, Developer ID signing, notarized release or App Store package is provided. This is currently an ad-hoc-signed personal-use build. |
+
+The shortcut-capture implementation uses SDL2's non-sandboxed Cocoa path and a non-public macOS API. It works in the tested personal-use configuration but needs reevaluation for future macOS compatibility or a sandboxed/App Store release. Full release acceptance also needs a human-played soak, broader controller testing and the remaining checks above.
+
+---
+
+## Inherited CannonBall DX Features
+
+The following sections describe the upstream feature set. The Mac differences above take precedence, particularly for wheel feedback and cabinet outputs.
 
 ### 🐎 Ferrari Badge Orientation Fix
 
@@ -110,7 +180,12 @@ CannonBall already included steering-wheel force feedback. CannonBall DX **exten
 
 ## Platform Support
 
-### Tested
+### Mac fork
+
+- **Apple silicon, macOS 27.0 or newer** — native Metal rendering. See [validation status](docs/MACOS-VALIDATION.md).
+- Keyboard and gamepad input; wheel force feedback and cabinet outputs are disabled.
+
+### Upstream DX platform testing
 
 - **Windows 10/11 (64-bit)**
 
@@ -120,7 +195,7 @@ CannonBall already included steering-wheel force feedback. CannonBall DX **exten
 - Raspberry Pi / Raspberry Pi OS
 - Other platforms supported by upstream CannonBall or CannonBall-SE
 
-The upstream projects contain support for additional operating systems and hardware, and some of that code remains present in CannonBall DX. However, **the DX fork and its added features are only tested on Windows**. Linux, Raspberry Pi and other builds may work fully, partially or not at all. No compatibility outside Windows should be assumed.
+The upstream projects contain support for additional operating systems and hardware. Linux and Raspberry Pi have not been validated with this Mac fork's changes.
 
 The expanded force-feedback implementation and modern wheel work in CannonBall DX are likewise tested only on Windows.
 
@@ -130,8 +205,8 @@ The expanded force-feedback implementation and modern wheel work in CannonBall D
 
 CannonBall DX requires the original **OutRun Revision B** ROM data. There are two supported ways to provide it:
 
-- Copy the traditional extracted CannonBall ROM files into `roms/`, exactly as before.
-- Place a suitable MAME ZIP archive such as a current merged `outrun.zip` into `roms/` without extracting it.
+- **Mac:** choose a traditional extracted-ROM folder or suitable MAME ZIP archive in the native picker. Keep it anywhere accessible; do not copy ROMs into the app bundle.
+- **Upstream command-line builds:** place extracted files or a suitable ZIP such as `outrun.zip` in `roms/`.
 
 ZIP entries are identified by **CRC32 and uncompressed size**, not by archive filename alone. This allows CannonBall DX to locate the Revision B data, the optional alternate early/Japanese program ROMs and corrected PCM data inside modern merged archives even when MAME uses different filenames or subdirectories.
 
@@ -146,6 +221,8 @@ You are expected to legally own the original ROMs; usage may be restricted by lo
 ---
 
 ## Controls and Multiple Devices
+
+**Mac:** keyboard/gamepad are the primary control paths. Wheel force feedback is disabled, even if an inherited wheel setting or binding is present. The descriptions of wheel effects below refer to upstream Windows behavior.
 
 Controls are configured through:
 
@@ -170,7 +247,7 @@ For existing configuration files that do not yet contain an Input Mode setting, 
 
 - **Steer:** Left / Right arrows
 - **Accelerate:** `Left Ctrl`
-- **Brake:** `Left Alt`
+- **Brake:** `Left Alt` (`Left Option` on Mac)
 - **Low / High Gear:** `Space` / `Left Shift`
 - **Start:** `1`
 - **Coin:** `5`
@@ -203,7 +280,7 @@ For existing configuration files that do not yet contain an Input Mode setting, 
 
 - **Arrow Keys** Menu navigation
 - **Enter** Menu Accept
-- **Esc** Menu Back / Quit during gameplay
+- **Esc** Menu Back; on Mac, pause and release keyboard capture during gameplay (upstream: quit)
 - **F2** Frame step
 - **F3** Freeze timer
 - **F5** Menu Access
@@ -214,6 +291,8 @@ For existing configuration files that do not yet contain an Input Mode setting, 
 - **F10** Default Ferrari color
 - **F11** Windowed / Fullscreen
 - **Alt+Enter** Windowed / Fullscreen
+
+Mac also provides **⌘P** Pause / Resume, **⌘O** Choose ROMs and **⌘Q** Quit. Pause before using system app-switching shortcuts if the game has captured the keyboard.
 
 ### Menu and Digital-Control Improvements
 
@@ -334,7 +413,7 @@ Game mode selection is integrated directly into the Music Select Screen:
 
 Ferrari colours are **Red, Blue, Yellow, Green, Cyan, Black, White and Silver**. The Music Select Screen colour applies **only to the next race** and does not replace the saved default. After the run, Attract Mode returns to the default colour selected with **F10**.
 
-Custom music files can still be placed in `./res/` using:
+On Mac, put custom music in `~/Library/Application Support/CannonBall DX/Music/`; upstream builds use `./res/`. Use:
 
 ```text
 [01-99]_Track_Display_Name.[wav|mp3|ym|bin]
@@ -348,7 +427,7 @@ Tracks `01-03` replace the original songs. Tracks `04+` add additional entries t
 
 ## Arcade Outputs
 
-CannonBall DX exposes its lamp outputs through:
+**These outputs are disabled in the Mac port.** Upstream CannonBall DX exposes its lamp outputs through:
 
 - **MAME network output**
 - **Windows MAMEOutput messages / MAMEHooker**
@@ -390,7 +469,11 @@ If you find a crash, graphical problem, input issue or behaviour that differs fr
 
 ## Build Information
 
-### Windows
+### macOS
+
+See [Mac build and usage](docs/MACOS.md). Build and launch with `./script/build_and_run.sh`; the app is staged at `dist/CannonBall DX for Mac.app`.
+
+### Windows (upstream)
 
 CannonBall DX is developed and tested on **Windows 10/11 (64-bit)** and can be compiled with Visual Studio.
 
@@ -421,10 +504,15 @@ build/cannonball-dx
 
 ## Credits
 
-CannonBall DX builds directly on the work of the original projects and their contributors.
+CannonBall DX for Mac builds directly on CannonBall DX and the original projects and their contributors.
 
 - **Chris White** - creator of the original **CannonBall** engine and core OutRun recreation
 - **James Pearce (J1mbo)** - creator and maintainer of **CannonBall-SE**, including its cabinet, video, performance, audio and gameplay enhancements
+- **Endprodukt** - CannonBall DX fork, feature direction, testing and DX-specific development
+- **Astra and Fozz-byte** - Mac port with native Metal rendering (**MAC PORT BY ASTRA AND FOZZ-BYTE**)
+
+### Libraries and additional contributors
+
 - **Shay Green (Blargg)** - `snes_ntsc` NTSC filter library
 - **Zenju** - author of **xBRZ**, used for the 3x/4x/5x/6x pixel-scaling modes
 - **Maxim Stepin** and **Cameron Zemek** - authors/contributors of the **HQx** implementation used for the 3x/4x pixel-scaling modes
@@ -432,13 +520,13 @@ CannonBall DX builds directly on the work of the original projects and their con
 - **Rich Geldreich and miniz contributors** - `miniz` ZIP/DEFLATE library used for direct ROM archive loading
 - **rtissera** - RISC-V RVV 1.0 SIMD support and x86 SSE2 fallback
 - **CannonBall and CannonBall-SE contributors** - fixes, ports, testing and improvements across both upstream projects
-- **Endprodukt** - CannonBall DX fork, feature direction, testing and DX-specific development
 - **ChatGPT by OpenAI** - development assistance for the additional work in CannonBall DX
 - **Claude by Anthropic** - development assistance for the additional work in CannonBall DX
 - **POOTERMAN** - CannonBall DX Logo. https://www.deviantart.com/pooterman
 
 Upstream projects:
 
+- CannonBall DX: https://github.com/Endprodukt/cannonball-dx
 - CannonBall: https://github.com/djyt/cannonball
 - CannonBall-SE: https://github.com/J1mbo/cannonball-se
 - Mesen2 scaler source: https://github.com/SourMesen/Mesen2
@@ -461,5 +549,8 @@ Upstream projects:
 
 ## See Also
 
+- [Mac build and usage](docs/MACOS.md)
+- [Validation status](docs/MACOS-VALIDATION.md) and [30-minute soak results](docs/MACOS-SOAK.md)
+- [Source fork publication guide](docs/PUBLISHING.md)
 - Man page: `docs/cannonball-dx.6`
 - Windows compiling guide: `docs/Compiling-On-Windows.txt`

@@ -25,6 +25,7 @@
 #include "sdl2/display_utils.hpp"
 
 #include "video.hpp"
+#include "sdl2/presentation.hpp"
 
 #include "romloader.hpp"
 #include "trackloader.hpp"
@@ -49,7 +50,12 @@
 #include <mutex>
 #include <chrono>
 #include <semaphore>
+#ifdef _OPENMP
 #include <omp.h>
+#endif
+#ifdef __APPLE__
+#include "platform/macos/mac_platform.hpp"
+#endif
 #include <condition_variable>
 #include <cstdio>
 #include <algorithm>
@@ -61,7 +67,7 @@
   #include <pthread.h>
 #endif
 
-#ifndef _WIN32
+#ifdef __linux__
   #include <sys/resource.h>
   #include <sys/syscall.h>   // for SYS_gettid
   #include <unistd.h>        // for syscall()
@@ -176,7 +182,11 @@ int     cannonball::fps_counter         = 0;
 int     cannonball::fps_lock            = 0; // 0=use config, 30/60/120=command-line override
 bool    cannonball::singlecore_detect   = true;
 bool    cannonball::singlecore_mode     = false;
+#ifdef _OPENMP
 int     cannonball::game_threads        = omp_get_max_threads();
+#else
+int     cannonball::game_threads        = std::max(1u, std::thread::hardware_concurrency());
+#endif
 bool    cannonball::perftest            = false;
 
 // ------------------------------------------------------------------------------------------------
@@ -234,6 +244,10 @@ static void set_shift_force(int direction, int force)
 static void quit_func(int code)
 {
     audio.stop_audio();
+#ifdef __APPLE__
+    if(video.enabled) video.disable();
+    if(code==0) { config.save(); config.save_stats(); }
+#endif
     input.close_joy();
     forcefeedback::close();
     if (menu) delete menu;
@@ -245,7 +259,7 @@ static void quit_func(int code)
 static void show_rom_load_error()
 {
     const char* message =
-        "CannonBall DX couldn't find a complete supported OutRun ROM set.\n\n"
+        CANNONBALL_APP_NAME " couldn't find a complete supported OutRun ROM set.\n\n"
         "Make sure to provide the required OutRun Revision B ROM data in the configured ROM folder.\n\n"
         "Supported setups:\n"
         "- A suitable MAME outrun.zip (a current merged set is recommended)\n"
@@ -293,10 +307,35 @@ static void process_events(void)
 {
     SDL_Event event;
 
+#ifdef __APPLE__
+    // Cocoa may execute menu equivalents while SDL pumps this same event batch.
+    mac_platform::begin_events();
+#endif
     // Grab all events from the queue.
     while(SDL_PollEvent(&event)) {
         switch(event.type) {
+#ifdef __APPLE__
+            case SDL_WINDOWEVENT:
+                if(event.window.event==SDL_WINDOWEVENT_FOCUS_LOST || event.window.event==SDL_WINDOWEVENT_MINIMIZED)
+                    mac_platform::pause();
+                break;
+#endif
             case SDL_KEYDOWN:
+#ifdef __APPLE__
+                // Always provide an escape from system-shortcut capture. In the
+                // game menu Escape retains its original Back behavior.
+                if (event.key.keysym.sym==SDLK_ESCAPE && cannonball::state==STATE_GAME) {
+                    mac_platform::pause(); break;
+                }
+                if(event.key.keysym.mod & KMOD_GUI) {
+                    if(event.key.repeat) break;
+                    if(event.key.keysym.sym==SDLK_q) { cannonball::state=STATE_QUIT; break; }
+                    if(event.key.keysym.sym==SDLK_p) {
+                        mac_platform::shortcut_pause(); break;
+                    }
+                    if(event.key.keysym.sym==SDLK_o) { mac_platform::shortcut_roms(); break; }
+                }
+#endif
                 input.handle_key_down(&event.key.keysym);
                 break;
 
@@ -358,6 +397,10 @@ static void tick()
 
     process_events();
 
+#ifdef __APPLE__
+    mac_platform::sync_input_capture();
+#endif
+
     // A real cross-monitor move is detected by the renderer, but config.xml
     // belongs to the main thread. Persist only the latest queued destination.
     const int moved_display = display_utils::take_preferred_save_request();
@@ -390,7 +433,12 @@ static void tick()
         case STATE_GAME: {
             if (tick_frame) {
                 if (input.has_pressed(Input::TIMER)) outrun.freeze_timer = !outrun.freeze_timer;
-                if (input.has_pressed(Input::PAUSE)) pause_engine = !pause_engine;
+                if (input.has_pressed(Input::PAUSE)) {
+                    pause_engine = !pause_engine;
+#ifdef __APPLE__
+                    mac_platform::update_pause_title();
+#endif
+                }
                 if (input.has_pressed(Input::MENU))  cannonball::state = STATE_INIT_MENU;
             }
 
@@ -446,12 +494,18 @@ static void tick()
     outrun.outputs->writeDigitalToConsole();
 
     if (tick_frame) {
+#ifdef __APPLE__
+        if (pause_engine) input.set_rumble(false);
+        else
+#endif
+        {
         // Controller Rumble. Only rumble in-game.
         // JJP - Enhancement - high frequency rumble 'ticks' when skidding on road
         if (outrun.SkiddingOnRoad() && outrun.game_state == GS_INGAME)
             input.set_rumble(true, config.controls.rumble, 1);
         else
             input.set_rumble(outrun.outputs->is_set(OOutputs::D_MOTOR), config.controls.rumble, 0);
+        }
     }
 
     // Music-selection wheel detent. This deliberately runs after normal output
@@ -667,9 +721,9 @@ void prepare_thread() {
 
 
 void pin_thread_to_core(std::thread& t, int core_id) {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
         std::cerr << "Error setting affinity for thread to core: "
-                  << "CannonBall DX does not support thread pinning on Windows" << "\n";
+                  << CANNONBALL_APP_NAME " uses system scheduling on this platform" << "\n";
     return;
 #else
     cpu_set_t cpuset;
@@ -701,7 +755,7 @@ static int main_loop() {
 
     auto refresh_vsync_state = [&]()
     {
-        if (config.video.vsync != 1 || SDL_GL_GetSwapInterval() == 0)
+        if (config.video.vsync != 1 || presentation::swap_interval() == 0)
             return false;
 
         SDL_DisplayMode displayMode;
@@ -714,7 +768,7 @@ static int main_loop() {
     // Determine if we'll be using threaded or sequential rendering
     int threads = cannonball::game_threads;
 
-#ifdef WIN32
+#if defined(WIN32) || defined(__APPLE__)
     // On Windows, input must be on the main thread. We therefore cap the thread-count to 3,
     // thereby setting prepare_threads to 0 (below)
     if (threads > 3) threads = 3;
@@ -801,11 +855,19 @@ static int main_loop() {
     // For diagnostics:
     int frameCounter = 0;
     int renderedFrames = 0;
+    uint64_t soakPresented = 0, soakSkipped = 0, soakPaused = 0;
+    const bool soakMode = std::getenv("CANNONBALL_SOAK") != nullptr;
     auto fpsTimer = std::chrono::steady_clock::now();
 
-    // Go!
-
+    // Optional bounded local smoke/soak run; never changes the saved configuration.
+    const auto smokeStart = std::chrono::steady_clock::now();
+    const char* smokeValue = std::getenv("CANNONBALL_TEST_SECONDS");
+    const int smokeSeconds = smokeValue ? std::max(0, std::atoi(smokeValue)) : 0;
     while (cannonball::state != STATE_QUIT) {
+        if (smokeSeconds && std::chrono::duration<double>(std::chrono::steady_clock::now()-smokeStart).count() >= smokeSeconds) {
+            cannonball::state = STATE_QUIT;
+            break;
+        }
         #ifdef PROFILE_WITH_GPERFTOOLS
         if ((outrun.game_state == GS_START1) && (perf_end_frame==0)) {
             perf_end_frame = frameCounter + (5 * configured_fps);
@@ -827,6 +889,7 @@ static int main_loop() {
             tick();
             audio.tick();
             nextFrameTime = (now + frameDuration); // reset time next frame is due
+            ++soakSkipped;
             // Skip heavy work this frame; return to top of while loop
             continue;
         }
@@ -866,6 +929,8 @@ static int main_loop() {
 
         // Count only frames that reached the presentation path.
         renderedFrames++;
+        ++soakPresented;
+        if (pause_engine) ++soakPaused;
 
         // Swap the buffers for the next frame.
         video.swap_buffers();
@@ -935,6 +1000,15 @@ static int main_loop() {
         if (elapsedSeconds >= 2.0)
         {
             fps_counter = static_cast<int>((renderedFrames / elapsedSeconds) + 0.5);
+            if (smokeSeconds) std::cout << "Measured FPS: " << renderedFrames / elapsedSeconds << std::endl;
+            if (soakMode) {
+                std::cout << "Soak metrics: seconds=" << std::chrono::duration<double>(fpsNow-smokeStart).count()
+                          << " frames=" << soakPresented << " skipped=" << soakSkipped
+                          << " paused=" << soakPaused << " audio_callbacks=" << audio.callback_count()
+                          << " audio_underruns=" << audio.underrun_count()
+                          << " max_mix_us=" << audio.max_mix_micros()
+                          << " max_mix_gap_us=" << audio.max_mix_gap_micros() << std::endl;
+            }
             renderedFrames = 0;
             fpsTimer = fpsNow;
         }
@@ -1026,7 +1100,7 @@ static bool parse_command_line(int argc, char* argv[]) {
                          "-x                   : Disable single-core RaspberryPi board detection\n" <<
                          "-1                   : Use single-core mode\n" <<
                          "-perftest            : Assess max frame rate possible on this platform\n\n" <<
-                         "CannonBall DX man page is in the docs folder. Open it with 'man -l docs/cannonball-dx.6'" << std::endl;
+                         CANNONBALL_APP_NAME " man page is in the docs folder. Open it with 'man -l docs/cannonball-dx.6'" << std::endl;
             _Exit(0);
         }
     }
@@ -1043,25 +1117,43 @@ int main(int argc, char* argv[]) {
     // on. Do not enable SDL_HINT_WINDOWS_DPI_SCALING: DX uses pixel coordinates.
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
 #endif
-    std::cout << "CannonBall DX " << CANNONBALL_DX_VERSION << "\n";
+    std::cout << CANNONBALL_APP_NAME " " << CANNONBALL_DX_VERSION << "\n";
     std::cout << "  An enhanced build of the SEGA Outrun engine by Chris White (https://github.com/djyt/cannonball)\n";
     std::cout << "  Based on CannonBall-SE, Copyright (c) 2025, James Pearce (https://github.com/J1mbo/cannonball)\n";
     std::cout << std::endl;
 
     // Parse command line arguments (config file location, LayOut data)
     bool ok = parse_command_line(argc, argv);
+#ifdef __APPLE__
+    if (!mac_platform::initialize()) return 1;
+#endif
 
     if (ok) {
         std::cout << "DEBUG: BEFORE CONFIG LOAD" << std::endl;
 
         config.load();
+#ifdef __APPLE__
+        for (int i=1; i<argc; ++i) {
+            if (!strcmp(argv[i], "--metal-self-test")) return glb::self_test() ? 0 : 1;
+            if (!strcmp(argv[i], "--audio-self-test")) {
+                bool passed=Audio::callback_self_test();
+                std::cout << "Audio callback tests: " << (passed ? "PASS" : "FAIL") << std::endl;
+                return passed ? 0 : 1;
+            }
+            if (!strcmp(argv[i], "--check-roms")) return mac_platform::ensure_roms(false) ? 0 : 2;
+        }
+#endif
 
         std::cout << "DEBUG: AFTER CONFIG LOAD" << std::endl;
 
+        #ifdef __APPLE__
+        if (!mac_platform::ensure_roms()) return 0;
+#else
         if (!roms.load_revb_roms(config.sound.fix_samples)) {
             show_rom_load_error();
             return 1;
         }
+#endif
 
         if (cannonball::singlecore_detect || cannonball::singlecore_mode) {
             if (singleCorePi() || cannonball::singlecore_mode) {
@@ -1114,7 +1206,7 @@ int main(int argc, char* argv[]) {
         std::cout << "$ SDL_VIDEODRIVER=""wayland"" build/cannonball-dx" << std::endl;
     }
 #endif
-    SDL_SetHint(SDL_HINT_APP_NAME, "CannonBall DX");
+    SDL_SetHint(SDL_HINT_APP_NAME, CANNONBALL_APP_NAME);
     //SDL_SetHint(SDL_HINT_VIDEO_X11_NET_WM_BYPASS_COMPOSITOR, "1");
     if (SDL_Init(   SDL_INIT_TIMER | SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER |
                     SDL_INIT_HAPTIC | SDL_INIT_EVENTS) == -1) {
@@ -1160,6 +1252,9 @@ int main(int argc, char* argv[]) {
     // DirectX (Windows) or /dev/input/event on Linux. This also includes control of real cabinet hardware via
     // SmartyPi. Therefore, haptic takes priority over simple rumble.
 
+    #ifdef __APPLE__
+    config.controls.haptic = false;
+    #endif
     if (config.controls.haptic)
     {
         config.controls.haptic =
@@ -1196,6 +1291,9 @@ int main(int argc, char* argv[]) {
     // the background. This also makes direct EXE launches behave like launchers
     // that explicitly activate the CannonBall window.
     audio.init();
+#ifdef __APPLE__
+    mac_platform::install_menu();
+#endif
     video.focus_window();
     const int exit_code = main_loop();
 

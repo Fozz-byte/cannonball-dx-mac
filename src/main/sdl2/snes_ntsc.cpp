@@ -15,7 +15,10 @@ Updates Feb-26:  added SSE2 fall-back; SSE4.1 now selected at compile time via _
 
 #include "snes_ntsc.h"
 #ifdef _OPENMP
-#include <omp.h>    // JJP - OpenMP support for multi-threading initialization
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+#include <thread>    // JJP - OpenMP support for multi-threading initialization
 #endif
 #include <stdint.h> // uint32_t etc
 

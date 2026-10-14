@@ -284,6 +284,7 @@ void RomLoader::init(const uint32_t length)
 {
     load = config.data.crc32 ? &RomLoader::load_crc32 : &RomLoader::load_rom;
     this->length = length;
+    delete[] rom;
     rom = new uint8_t[length];
 }
 

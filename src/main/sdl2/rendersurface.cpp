@@ -22,14 +22,21 @@
 #include "rendersurface.hpp"
 #include "frontend/config.hpp"
 #include "display_utils.hpp"
+#ifdef __APPLE__
+#include "platform/macos/mac_platform.hpp"
+#endif
 // Aligned Memory Allocation (standard C++17)
 #include <new>        // std::align_val_t, ::operator new/delete
 #include <cstddef>    // std::size_t
 #include <cstdint>
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 #include <math.h>
 #include <cmath>   // std::sqrtf, std::fabs, std::roundf, std::lroundf, etc.
+#ifndef __APPLE__
 #include <SDL_opengles2.h>
+#endif
 #include <array>   // for std::array
 
 #define VERTEX_SHADER        "res/Cannonball-Shader-Vertex.glsl"
@@ -143,8 +150,15 @@ void RenderSurface::disable()
     glb::shutdown();
 
     // delete the SDL‑GL context
-    if (glContext) { SDL_GL_DeleteContext(glContext); glContext = nullptr; }
+    #ifndef __APPLE__
+    if (glContext) SDL_GL_DeleteContext(glContext);
+#endif
+    glContext = nullptr;
 
+    // Release app-local shortcut capture and restore the pointer before teardown.
+#ifdef __APPLE__
+    mac_platform::set_game_window(nullptr);
+#endif
     // destroy window and quit SDL_gpu
     if (window) { SDL_DestroyWindow(window); window = nullptr; }
 
@@ -172,11 +186,13 @@ void RenderSurface::focus_window()
     SDL_ShowWindow(window);
     SDL_RaiseWindow(window);
 
+    #ifndef __APPLE__
     if (SDL_SetWindowInputFocus(window) != 0)
     {
         std::cerr << "Unable to focus CannonBall window: "
                   << SDL_GetError() << std::endl;
     }
+    #endif
 }
 
 
@@ -321,7 +337,7 @@ bool RenderSurface::sync_display_state()
 
     int drawable_width = 0;
     int drawable_height = 0;
-    SDL_GL_GetDrawableSize(window, &drawable_width, &drawable_height);
+    presentation::drawable_size(window, &drawable_width, &drawable_height);
     if (drawable_width <= 0 || drawable_height <= 0)
     {
         mark_display_dirty();
@@ -349,6 +365,15 @@ bool RenderSurface::sync_display_state()
         dst_rect.h = drawable_height;
         anchor_x = 0;
         anchor_y = 0;
+#ifdef __APPLE__
+        if(config.video.widescreen != 3) {
+            const double aspect=double(src_width)/src_height;
+            dst_rect.w=std::min(drawable_width,int(drawable_height*aspect));
+            dst_rect.h=std::min(drawable_height,int(drawable_width/aspect));
+            anchor_x=dst_rect.x=(drawable_width-dst_rect.w)/2;
+            anchor_y=dst_rect.y=(drawable_height-dst_rect.h)/2;
+        }
+#endif
     }
     else
     {
@@ -571,19 +596,27 @@ bool RenderSurface::init_sdl(int video_mode)
     // --------------------------------------------------------
     // Request an OpenGL ES2 context (for desktop & mobile)
     // --------------------------------------------------------
+#ifndef __APPLE__
     SDL_SetHint(SDL_HINT_OPENGL_ES_DRIVER, "1");   // tell SDL to prefer ANGLE/GLES
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,   2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,   0);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER,            1);
 
+#endif
+
     // Create a window manually so that it can be closed on video restart (e.g. Blargg on/off)
     // Now create our window (with an OpenGL flag)
 
-    window = SDL_CreateWindow("CannonBall DX",
+    window = SDL_CreateWindow(CANNONBALL_APP_NAME,
         SDL_WINDOWPOS_CENTERED_DISPLAY(target_display),
         SDL_WINDOWPOS_CENTERED_DISPLAY(target_display),
-        scn_width, scn_height, SDL_WINDOW_OPENGL);
+        scn_width, scn_height,
+#ifdef __APPLE__
+        SDL_WINDOW_METAL | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE);
+#else
+        SDL_WINDOW_OPENGL);
+#endif
 
     if (!window) {
         std::cerr << "Window creation failed: " << SDL_GetError() << std::endl;
@@ -599,11 +632,16 @@ bool RenderSurface::init_sdl(int video_mode)
     display_event_watch_registered = true;
 
     // Create the ES context
+#ifdef __APPLE__
+    glContext = window; // presentation lifetime marker; Metal view is owned by backend
+#else
     glContext = SDL_GL_CreateContext(window);
     if (!glContext) {
         std::cerr << "Failed to create GLES context: " << SDL_GetError() << std::endl;
         return false;
     }
+
+#endif
 
     // Keep the existing Fullscreen option borderless. Exclusive uses the
     // monitor's current desktop resolution and refresh rate as a real SDL mode.
@@ -652,7 +690,7 @@ bool RenderSurface::init_sdl(int video_mode)
 
     // --- Tiny ES2 backend init (replaces SDL_gpu) ---
     auto loadTextFile = [](const char* path)->std::string {
-        std::ifstream f(path, std::ios::binary);
+        std::ifstream f(config.data.res_path + std::string(path).substr(4), std::ios::binary);
         if (!f) return {};
         return std::string((std::istreambuf_iterator<char>(f)), {});
     };
@@ -713,8 +751,13 @@ bool RenderSurface::init_sdl(int video_mode)
     SDL_FillRect(GameSurface[0], NULL, black_color);
     SDL_FillRect(GameSurface[1], NULL, black_color);
 
-    SDL_GL_GetDrawableSize(window, &drawable_width_cache, &drawable_height_cache);
+    presentation::drawable_size(window, &drawable_width_cache, &drawable_height_cache);
+#ifdef __APPLE__
+    mac_platform::set_game_window(window);
+    display_dirty.store(true, std::memory_order_release);
+#else
     display_dirty.store(false, std::memory_order_release);
+#endif
 
     // screen_pixels = static_cast<uint32_t*>(surface->pixels);
     return true;

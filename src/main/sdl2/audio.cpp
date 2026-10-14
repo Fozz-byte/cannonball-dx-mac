@@ -26,6 +26,9 @@
 #include <cctype>
 #include <algorithm>        // for std::min & std::clamp
 #include <cstring>
+#ifdef __APPLE__
+#include <pthread.h>
+#endif
 
 #include "sdl2/audio.hpp"
 
@@ -285,13 +288,15 @@ void Audio::pause_audio()
     if (sound_enabled)
     {
         SDL_PauseAudioDevice(dev,1);
+        running.store(false, std::memory_order_relaxed);
+        if (mixThread.joinable()) mixThread.join();
         audio_paused = 2;
     }
 }
 
 void Audio::resume_audio()
 {
-    if (sound_enabled)
+    if (sound_enabled && audio_paused == 2)
     {
         clear_buffers();
         audio_paused = 1; // audio_tick() will commence playback when there's something to play
@@ -322,6 +327,11 @@ void Audio::clear_buffers()
 {
     SDL_LockAudioDevice(dev);
     SDL_ClearQueuedAudio(dev);
+    // Called only with the device paused and the producer stopped. Return every
+    // queued slot before resetting indices, including after pause/reopen.
+    while (samplesReady.try_acquire()) spaceAvailable.release();
+    prodIndex.store(0, std::memory_order_relaxed);
+    consIndex.store(0, std::memory_order_relaxed);
     // Allocate (or re-allocated) mix buffers
     for (auto &buf : ringBuffer) buf.resize(mix_buffer_bytes/2);  // div 2 as int16
     SDL_UnlockAudioDevice(dev);
@@ -339,13 +349,13 @@ void Audio::tick()
         // Drop anything still queued
         clear_buffers();
 
+        audio_paused = 0;
         running.store(true);
         // launch mixing thread
         mixThread = std::thread(&Audio::mixing_loop, this);
 
         // and unpause the device
         SDL_PauseAudioDevice(dev, 0);
-        audio_paused = 0;
     }
 }
 
@@ -366,13 +376,30 @@ void Audio::mixing_loop() {
 */
 // JJP - Cross-platform safe version; avoids over-release of counting semaphore
 void Audio::mixing_loop() {
+#ifdef __APPLE__
+    // This producer services an 8 ms audio deadline. Default-QoS workers can be
+    // delayed behind interactive work even when overall CPU use is low.
+    const int qosResult=pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+    if (qosResult) std::cerr << "Audio mixer QoS failed: " << qosResult << std::endl;
+#endif
+    const bool measure=std::getenv("CANNONBALL_SOAK") != nullptr;
+    auto previous=std::chrono::steady_clock::now();
     while (running.load(std::memory_order_relaxed)) {
         // wait for space, but time out so we can re-check 'running'
         if (!spaceAvailable.try_acquire_for(std::chrono::milliseconds(2))) {
             continue; // timed out; loop back and re-check 'running'
         }
         auto &dst = ringBuffer[prodIndex.load(std::memory_order_relaxed)];
+        const auto started=std::chrono::steady_clock::now();
         fill_and_mix(reinterpret_cast<uint8_t*>(dst.data()), mix_buffer_bytes);
+        if (measure) {
+            const auto ended=std::chrono::steady_clock::now();
+            const uint64_t work=std::chrono::duration_cast<std::chrono::microseconds>(ended-started).count();
+            const uint64_t gap=std::chrono::duration_cast<std::chrono::microseconds>(started-previous).count();
+            if (work>maxMixMicros.load(std::memory_order_relaxed)) maxMixMicros.store(work, std::memory_order_relaxed);
+            if (gap>maxMixGapMicros.load(std::memory_order_relaxed)) maxMixGapMicros.store(gap, std::memory_order_relaxed);
+            previous=ended;
+        }
         samplesReady.release();
         prodIndex = (prodIndex + 1) % BUFFER_COUNT;
     }
@@ -470,8 +497,15 @@ void Audio::fill_and_mix(uint8_t *stream, int len)
 void Audio::sdl_callback_trampoline(void* udata, Uint8* stream, int len)
 {
     auto* self = static_cast<Audio*>(udata);
-    // wait until a buffer is ready
-    self->samplesReady.acquire();
+    self->callbackCount.fetch_add(1, std::memory_order_relaxed);
+    // A realtime audio callback must never wait for the producer. Silence is
+    // preferable to blocking the device thread; leave ring ownership unchanged
+    // so the next callback consumes the next complete buffer in order.
+    if (!self->samplesReady.try_acquire()) {
+        memset(stream, 0, len);
+        self->underrunCount.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
     // copy one buffer
     auto &src = self->ringBuffer[self->consIndex.load()];
     memcpy(stream, src.data(), len);
@@ -480,6 +514,34 @@ void Audio::sdl_callback_trampoline(void* udata, Uint8* stream, int len)
     self->spaceAvailable.release();
 }
 
+
+bool Audio::callback_self_test()
+{
+    Audio probe;
+    uint8_t output[16];
+    memset(output, 0x7f, sizeof(output));
+    sdl_callback_trampoline(&probe, output, sizeof(output));
+    for (auto byte : output) if (byte != 0) return false;
+    // Recover after starvation, wrap the ring repeatedly, and verify ownership.
+    for (int batch=0; batch<3; ++batch) {
+        for (int i=0; i<BUFFER_COUNT; ++i) {
+            if (!probe.spaceAvailable.try_acquire()) return false;
+            auto &buffer=probe.ringBuffer[probe.prodIndex.load()];
+            buffer.assign(8, int16_t(100+batch*BUFFER_COUNT+i));
+            probe.prodIndex=(probe.prodIndex+1)%BUFFER_COUNT;
+            probe.samplesReady.release();
+        }
+        if (probe.spaceAvailable.try_acquire()) return false;
+        for (int i=0; i<BUFFER_COUNT; ++i) {
+            sdl_callback_trampoline(&probe, output, sizeof(output));
+            int16_t sample; memcpy(&sample, output, sizeof(sample));
+            if (sample != 100+batch*BUFFER_COUNT+i) return false;
+        }
+    }
+    sdl_callback_trampoline(&probe, output, sizeof(output));
+    for (auto byte : output) if (byte != 0) return false;
+    return probe.callback_count()==14 && probe.underrun_count()==2;
+}
 
 // ***********************************************************************************
 //

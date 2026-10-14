@@ -167,11 +167,22 @@ public:
         remove_save_entry(menu_s_exsettings);
 
         if (!menu_about.empty())
-            menu_about[0] = std::string("CANNONBALL DX VERSION ") + CANNONBALL_DX_VERSION;
+            menu_about[0] = std::string(CANNONBALL_MENU_NAME " VERSION ") + CANNONBALL_DX_VERSION;
 
         // Keep the inherited CannonBall-SE credit and add the DX fork credit above it.
         if (menu_about.size() >= 6)
             menu_about.insert(menu_about.begin() + 5, "DX BUILD COPYRIGHT 2026 ENDPRODUKT");
+
+#ifdef __APPLE__
+        // Order the Mac credits by lineage: SE, DX, then the Mac port.
+        // Keeping the row count preserves the font, spacing and logo clearance.
+        if (menu_about.size() >= 7 && menu_about[4].empty())
+        {
+            menu_about.erase(menu_about.begin() + 4);
+            std::swap(menu_about[4], menu_about[5]);
+            menu_about.push_back("MAC PORT BY ASTRA AND FOZZ-BYTE");
+        }
+#endif
 
         for (auto it = menu_cont.begin(); it != menu_cont.end(); )
         {

@@ -3,6 +3,13 @@
 #include "stdint.hpp"
 
 #define CANNONBALL_DX_VERSION "1.04"
+#ifdef __APPLE__
+#define CANNONBALL_APP_NAME "CannonBall DX for Mac"
+#define CANNONBALL_MENU_NAME "CANNONBALL DX FOR MAC"
+#else
+#define CANNONBALL_APP_NAME "CannonBall DX"
+#define CANNONBALL_MENU_NAME "CANNONBALL DX"
+#endif
 
 // Legacy compatibility for inherited CannonBall-SE source that still refers
 // to the previous version macro internally. Active branding uses DX.

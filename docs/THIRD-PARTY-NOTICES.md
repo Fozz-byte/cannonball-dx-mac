@@ -3,6 +3,23 @@
 This project includes or interfaces with third-party components. Copies of their
 licenses are included where required.
 
+## Mac build dependencies
+
+The Mac build fetches the following pinned sources through
+`cmake/MacDependencies.cmake` and compiles them into the app. Their original
+license files are copied to `Contents/Resources/licenses/` in the bundle.
+
+| Component | Version | Attribution and license | Source |
+| --- | --- | --- | --- |
+| SDL2 | 2.32.10 | Sam Lantinga and SDL contributors; zlib license | https://github.com/libsdl-org/SDL/tree/release-2.32.10 |
+| TinyXML2 | 11.0.0 | Lee Thomason and contributors; zlib license | https://github.com/leethomason/tinyxml2/tree/11.0.0 |
+| mpg123 | 1.32.9 | Copyright (c) 1995–2020 Michael Hipp and others; LGPL v2.1 | https://www.mpg123.de/download/mpg123-1.32.9.tar.bz2 |
+
+The SDL Cocoa keyboard source is built with `SDL_MAC_NO_SANDBOX=1` to enable
+its existing shortcut-capture implementation for this personal-use Mac app.
+The repository's original licenses and the separate component licenses remain
+in effect; the Mac port does not replace them with a new project-wide license.
+
 ---
 
 ## Blargg SNES NTSC Video Filter
